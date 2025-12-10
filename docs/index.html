@@ -15,11 +15,10 @@
             --button-text: #ffffff;
             --control-bg: #228B22;
         }
-
         .dark{
             --bg: #071016;
             --text: #90EE90;
-            --canvas-bg: #06331a; /* darker green */
+            --canvas-bg: #06331a;
             --grid-color: #2ecc71;
             --panel-bg: #0f1720;
             --panel-border: #2ecc71;
@@ -27,7 +26,6 @@
             --button-text: #e6ffe6;
             --control-bg: #1f7a3a;
         }
-
         body {
             text-align: center;
             font-family: Arial, sans-serif;
@@ -61,7 +59,6 @@
             font-weight: bold;
             font-size: 16px;
         }
-        /* Pause button is visible on all sizes now */
         #pauseButton {
             position: fixed;
             top: 10px;
@@ -117,7 +114,6 @@
         #down { bottom: 0; left: 75px; }
         #left { top: 75px; left: 0; }
         #right { top: 75px; right: 0; }
-
         #pauseScreen, #gameOverScreen {
             display: none;
             position: fixed;
@@ -156,8 +152,6 @@
         #restartButton:hover, #resumeButton:hover, #enableMotion:hover {
             filter: brightness(0.9);
         }
-
-        /* Media Queries */
         @media (max-width: 768px) {
             #score, #bestScore {
                 font-size: 20px;
@@ -171,7 +165,7 @@
                 max-width: 400px;
                 max-height: 400px;
             }
-            #themeToggle { top: 70px; } /* avoid overlapping pause button area on tiny screens */
+            #themeToggle { top: 70px; }
         }
         @media (min-width: 769px) {
             canvas {
@@ -179,7 +173,6 @@
                 height: 400px;
             }
         }
-
         .title { color: var(--text); }
     </style>
 </head>
@@ -191,10 +184,7 @@
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
     </div>
-
-    <!-- Pause button (visible on desktop and mobile). Space toggles pause too. -->
     <button id="pauseButton" title="Pause">⏸</button>
-
     <div id="controls">
         <button id="up" class="arrow">↑</button>
         <button id="down" class="arrow">↓</button>
@@ -202,12 +192,9 @@
         <button id="right" class="arrow">→</button>
     </div>
     <p>Sur mobile : penchez votre téléphone pour diriger le teckel ou utilisez les boutons.</p>
-
-    <!-- Motion permission button (required on some iOS versions) -->
     <div id="motionPermissionContainer" style="max-width:300px;margin:0 auto;padding:10px;display:none;">
         <button id="enableMotion">Activer les contrôles par mouvement</button>
     </div>
-
     <div id="pauseScreen">
         <div>
             <h2>Pause</h2>
@@ -239,17 +226,20 @@
         const enableMotionBtn = document.getElementById('enableMotion');
         const themeToggle = document.getElementById('themeToggle');
 
-        let box = 20; // will be recalculated
+        let box = 20;
         let teckel = [];
         let food = { x: 0, y: 0 };
         let score = 0;
         let bestScore = parseInt(localStorage.getItem("teckelBestScore") || "0", 10);
         bestScoreElement.textContent = "Meilleur score: " + bestScore;
-        let d = undefined; // current direction: "LEFT","RIGHT","UP","DOWN"
+        let d = undefined;
         let gameInterval = null;
         let isPaused = false;
-        let lastDirection = null; // used to prevent reversing into self
+        let lastDirection = null;
         let allowMotion = false;
+        let foodRotation = 0;
+        let foodBounce = 0;
+        let bounceDirection = 1;
 
         // Theme (dark/light) persisted
         const THEME_KEY = 'teckelTheme';
@@ -265,16 +255,13 @@
             }
             localStorage.setItem(THEME_KEY, theme);
         }
-        // restore theme on load
         const savedTheme = localStorage.getItem(THEME_KEY) || 'light';
         applyTheme(savedTheme);
-
         themeToggle.addEventListener('click', () => {
             const current = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
             applyTheme(current === 'dark' ? 'light' : 'dark');
         });
 
-        // Helper: compute box & set proper canvas pixel dimensions
         function resizeCanvas() {
             if (window.innerWidth <= 768) {
                 const size = Math.min(window.innerWidth * 0.95, 400);
@@ -284,15 +271,11 @@
                 canvas.width = 400;
                 canvas.height = 400;
             }
-            // Use an integer grid size to avoid sub-pixel positions
             box = Math.floor(canvas.width / 20) || 20;
-
-            // ensure score/food and teckel remain aligned to the grid after resize:
             teckel = teckel.map(segment => ({
                 x: Math.round(segment.x / box) * box,
                 y: Math.round(segment.y / box) * box
             }));
-
             food.x = Math.round(food.x / box) * box;
             food.y = Math.round(food.y / box) * box;
         }
@@ -306,10 +289,8 @@
             }
         });
 
-        // initial sizing
         resizeCanvas();
 
-        // Reset / start game state
         function resetGame() {
             teckel = [{ x: 9 * box, y: 10 * box }];
             food = {
@@ -323,17 +304,17 @@
             isPaused = false;
             pauseScreen.style.display = "none";
             document.getElementById("gameOverScreen").style.display = "none";
-            // ensure pause button shows pause icon when game reset
             pauseButton.textContent = '⏸';
             pauseButton.disabled = false;
+            foodRotation = 0;
+            foodBounce = 0;
+            bounceDirection = 1;
         }
 
-        // Motion controls (gyroscope)
         function handleOrientation(event) {
             if (!allowMotion) return;
-            const gamma = event.gamma; // left/right
-            const beta = event.beta;   // front/back
-
+            const gamma = event.gamma;
+            const beta = event.beta;
             if (Math.abs(gamma) > Math.abs(beta)) {
                 if (gamma < -12 && lastDirection !== "RIGHT") {
                     d = "LEFT"; lastDirection = "LEFT";
@@ -366,20 +347,9 @@
             }
         }
 
-        function drawGame() {
-            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim();
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            drawGrid();
-
-            for (let i = 0; i < teckel.length - 1; i++) {
-                ctx.fillStyle = "#8B4513";
-                ctx.fillRect(teckel[i].x, teckel[i].y, box, box);
-            }
-
-            const head = teckel[teckel.length - 1];
+        function drawTeckelHead(head) {
             ctx.fillStyle = "#A0522D";
             ctx.fillRect(head.x, head.y, box, box);
-
             ctx.fillStyle = "#D2B48C";
             ctx.beginPath();
             ctx.ellipse(head.x + box * 0.25, head.y - box * 0.15, box * 0.25, box * 0.18, 0, 0, Math.PI * 2);
@@ -387,7 +357,6 @@
             ctx.beginPath();
             ctx.ellipse(head.x + box * 0.75, head.y - box * 0.15, box * 0.25, box * 0.18, 0, 0, Math.PI * 2);
             ctx.fill();
-
             ctx.fillStyle = "white";
             ctx.beginPath();
             ctx.arc(head.x + box * 0.25, head.y + box * 0.25, box * 0.12, 0, Math.PI * 2);
@@ -395,7 +364,6 @@
             ctx.beginPath();
             ctx.arc(head.x + box * 0.75, head.y + box * 0.25, box * 0.12, 0, Math.PI * 2);
             ctx.fill();
-
             ctx.fillStyle = "black";
             const pupilOffset = box * 0.06;
             if (d === "LEFT") {
@@ -411,22 +379,68 @@
                 ctx.fillRect(head.x + box * 0.25, head.y + box * 0.33 + pupilOffset, box * 0.12, box * 0.12);
                 ctx.fillRect(head.x + box * 0.75 - box * 0.5, head.y + box * 0.33 + pupilOffset, box * 0.12, box * 0.12);
             }
-
             ctx.fillStyle = "black";
             ctx.beginPath();
             ctx.ellipse(head.x + box / 2, head.y + box * 0.75, box * 0.25, box * 0.12, 0, 0, Math.PI * 2);
             ctx.fill();
+        }
 
-            ctx.fillStyle = "white";
-            ctx.fillRect(food.x, food.y, box, box);
-            ctx.fillStyle = "pink";
-            ctx.fillRect(food.x + box/4, food.y + box/4, box/3, box/3);
-            ctx.fillRect(food.x + 2*box/3 - box/6, food.y + box/4, box/3, box/3);
-            ctx.fillStyle = "black";
-            ctx.fillRect(food.x + box/3, food.y + box/2, box/6, box/6);
-            ctx.fillRect(food.x + box/2, food.y + box/2, box/6, box/6);
-            ctx.fillStyle = "red";
-            ctx.fillRect(food.x + box/4, food.y + 3*box/4, 2*box/3, box/5);
+        function drawFood() {
+            ctx.save();
+            ctx.translate(food.x + box/2, food.y + box/2 + foodBounce);
+            ctx.rotate(foodRotation);
+
+            // Croquette principale
+            ctx.fillStyle = "#F5DEB3";
+            ctx.beginPath();
+            ctx.arc(0, 0, box/2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Ombre 3D
+            ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
+            ctx.beginPath();
+            ctx.ellipse(2, 2, box/2.5, box/3, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Petits trous
+            ctx.fillStyle = "#D2B48C";
+            ctx.beginPath();
+            ctx.arc(0, 0, box/6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(-box/6, -box/6, box/8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(box/6, box/6, box/8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Brillance
+            ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+            ctx.beginPath();
+            ctx.ellipse(-box/5, -box/5, box/6, box/8, Math.PI/4, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawGame() {
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim();
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+
+            for (let i = 0; i < teckel.length - 1; i++) {
+                ctx.fillStyle = "#8B4513";
+                ctx.fillRect(teckel[i].x, teckel[i].y, box, box);
+            }
+
+            const head = teckel[teckel.length - 1];
+            drawTeckelHead(head);
+            drawFood();
+
+            // Animation de la nourriture
+            foodRotation += 0.05;
+            foodBounce += 0.2 * bounceDirection;
+            if (foodBounce > 3 || foodBounce < -3) bounceDirection *= -1;
 
             let nextX = head.x;
             let nextY = head.y;
@@ -448,20 +462,21 @@
                         x: Math.floor(Math.random() * (canvas.width / box)) * box,
                         y: Math.floor(Math.random() * (canvas.height / box)) * box
                     };
+                    foodRotation = 0;
+                    foodBounce = 0;
+                    bounceDirection = 1;
                 }, 80);
             } else {
                 teckel.shift();
             }
 
             const newHead = { x: nextX, y: nextY };
-
             if (collision(newHead, teckel)) {
                 clearInterval(gameInterval);
                 updateBestScore();
                 showGameOver();
                 return;
             }
-
             teckel.push(newHead);
         }
 
@@ -480,7 +495,6 @@
             }
         }
 
-        // Keyboard controls - arrows for movement, Space to toggle pause
         function changeDirection(e) {
             const key = e.keyCode;
             if (key === 37 && d !== "RIGHT") { d = "LEFT"; lastDirection = "LEFT"; }
@@ -490,13 +504,11 @@
         }
 
         function handleKeydown(e) {
-            // Space toggles pause/resume
             if (e.code === 'Space' || e.keyCode === 32) {
                 e.preventDefault();
                 togglePause();
                 return;
             }
-            // Otherwise handle arrow keys
             changeDirection(e);
         }
 
@@ -519,34 +531,24 @@
             finalScoreElement.textContent = "Score final : " + score;
             document.getElementById("gameOverScreen").style.display = "block";
             window.removeEventListener("deviceorientation", handleOrientation);
-            // reset pause button to default state and disable it while showing game over
             pauseButton.textContent = '⏸';
             pauseButton.disabled = true;
         }
 
-        // Touch buttons (touchstart)
         upButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "DOWN") { d = "UP"; lastDirection = "UP"; } });
         downButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "UP") { d = "DOWN"; lastDirection = "DOWN"; } });
         leftButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "RIGHT") { d = "LEFT"; lastDirection = "LEFT"; } });
         rightButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "LEFT") { d = "RIGHT"; lastDirection = "RIGHT"; } });
 
-        // Pause button click toggles pause (and updates icon)
-        pauseButton.addEventListener("click", () => {
-            togglePause();
-        });
-
+        pauseButton.addEventListener("click", () => { togglePause(); });
         restartButton.addEventListener("click", function() {
             resetGame();
             clearInterval(gameInterval);
             gameInterval = setInterval(drawGame, 100);
             if (allowMotion) window.addEventListener("deviceorientation", handleOrientation);
         });
+        resumeButton.addEventListener("click", function() { togglePause(); });
 
-        resumeButton.addEventListener("click", function() {
-            togglePause();
-        });
-
-        // Visibility change -> pause the game when tab is hidden
         document.addEventListener('visibilitychange', () => {
             if (document.hidden && gameInterval) {
                 isPaused = true;
@@ -559,7 +561,6 @@
             }
         });
 
-        // Motion permission handling for iOS 13+ (must be invoked from user gesture)
         function showMotionPermissionIfNeeded() {
             if (typeof DeviceOrientationEvent !== 'undefined' &&
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -590,9 +591,7 @@
             }
         });
 
-        // Start the game
         document.addEventListener("keydown", handleKeydown);
-
         if (window.innerWidth <= 768) {
             showMotionPermissionIfNeeded();
             if (!(typeof DeviceOrientationEvent !== 'undefined' &&
@@ -602,7 +601,6 @@
             }
         }
 
-        // initialize and start
         resetGame();
         clearInterval(gameInterval);
         gameInterval = setInterval(drawGame, 100);
