@@ -114,7 +114,7 @@
         #down { bottom: 0; left: 75px; }
         #left { top: 75px; left: 0; }
         #right { top: 75px; right: 0; }
-        #pauseScreen, #gameOverScreen {
+        #pauseScreen, #gameOverScreen, #startScreen, #motionPermissionContainer {
             display: none;
             position: fixed;
             top: 0;
@@ -124,7 +124,7 @@
             background-color: rgba(0,0,0,0.7);
             z-index: 100;
         }
-        #pauseScreen div, #gameOverScreen div {
+        #pauseScreen div, #gameOverScreen div, #startScreen div, #motionPermissionContainer div {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -138,7 +138,7 @@
             max-width: 300px;
             color: var(--text);
         }
-        #restartButton, #resumeButton, #enableMotion {
+        #restartButton, #resumeButton, #enableMotion, #startButton {
             background-color: var(--button-bg);
             color: var(--button-text);
             border: none;
@@ -149,7 +149,7 @@
             margin-top: 10px;
             width: 100%;
         }
-        #restartButton:hover, #resumeButton:hover, #enableMotion:hover {
+        #restartButton:hover, #resumeButton:hover, #enableMotion:hover, #startButton:hover {
             filter: brightness(0.9);
         }
         @media (max-width: 768px) {
@@ -192,8 +192,18 @@
         <button id="right" class="arrow">→</button>
     </div>
     <p>Sur mobile : penchez votre téléphone pour diriger le teckel ou utilisez les boutons.</p>
-    <div id="motionPermissionContainer" style="max-width:300px;margin:0 auto;padding:10px;display:none;">
-        <button id="enableMotion">Activer les contrôles par mouvement</button>
+    <div id="motionPermissionContainer">
+        <div>
+            <p>Activez les contrôles par mouvement pour jouer avec le gyroscope.</p>
+            <button id="enableMotion">Activer les contrôles par mouvement</button>
+        </div>
+    </div>
+    <div id="startScreen">
+        <div>
+            <h2>Bienvenue au Teckel Game !</h2>
+            <p>Utilisez les flèches, les boutons ou penchez votre téléphone pour diriger le teckel.</p>
+            <button id="startButton">Jouer</button>
+        </div>
     </div>
     <div id="pauseScreen">
         <div>
@@ -218,6 +228,8 @@
         const resumeButton = document.getElementById("resumeButton");
         const pauseButton = document.getElementById("pauseButton");
         const pauseScreen = document.getElementById("pauseScreen");
+        const startScreen = document.getElementById("startScreen");
+        const startButton = document.getElementById("startButton");
         const upButton = document.getElementById("up");
         const downButton = document.getElementById("down");
         const leftButton = document.getElementById("left");
@@ -241,7 +253,7 @@
         let foodBounce = 0;
         let bounceDirection = 1;
 
-        // Theme (dark/light) persisted
+        // Gestion du thème
         const THEME_KEY = 'teckelTheme';
         function applyTheme(theme) {
             if (theme === 'dark') {
@@ -262,6 +274,7 @@
             applyTheme(current === 'dark' ? 'light' : 'dark');
         });
 
+        // Redimensionnement du canvas
         function resizeCanvas() {
             if (window.innerWidth <= 768) {
                 const size = Math.min(window.innerWidth * 0.95, 400);
@@ -291,6 +304,75 @@
 
         resizeCanvas();
 
+        // Gestion du gyroscope
+        let lastGamma = 0;
+        let lastBeta = 0;
+        const THRESHOLD = 10;
+        const SMOOTHING = 0.3;
+
+        function handleOrientation(event) {
+            if (!allowMotion) return;
+
+            // Lissage des valeurs
+            const gamma = event.gamma * SMOOTHING + lastGamma * (1 - SMOOTHING);
+            const beta = event.beta * SMOOTHING + lastBeta * (1 - SMOOTHING);
+            lastGamma = gamma;
+            lastBeta = beta;
+
+            // Seuil pour éviter les micro-mouvements
+            if (Math.abs(gamma) > THRESHOLD || Math.abs(beta) > THRESHOLD) {
+                if (Math.abs(gamma) > Math.abs(beta)) {
+                    if (gamma < -THRESHOLD && lastDirection !== "RIGHT") {
+                        d = "LEFT";
+                        lastDirection = "LEFT";
+                    } else if (gamma > THRESHOLD && lastDirection !== "LEFT") {
+                        d = "RIGHT";
+                        lastDirection = "RIGHT";
+                    }
+                } else {
+                    if (beta > THRESHOLD && lastDirection !== "DOWN") {
+                        d = "UP";
+                        lastDirection = "UP";
+                    } else if (beta < -THRESHOLD && lastDirection !== "UP") {
+                        d = "DOWN";
+                        lastDirection = "DOWN";
+                    }
+                }
+            }
+        }
+
+        async function setupMotionControls() {
+            if (typeof DeviceOrientationEvent !== 'undefined') {
+                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    // iOS 13+ : demande la permission
+                    motionPermissionContainer.style.display = 'block';
+                    enableMotionBtn.addEventListener('click', async () => {
+                        try {
+                            const res = await DeviceOrientationEvent.requestPermission();
+                            if (res === 'granted') {
+                                allowMotion = true;
+                                window.addEventListener("deviceorientation", handleOrientation);
+                                motionPermissionContainer.style.display = 'none';
+                            } else {
+                                alert('Permission refusée. Utilisez les boutons à l’écran.');
+                            }
+                        } catch (err) {
+                            console.error('Erreur de permission :', err);
+                            alert('Impossible d’activer les contrôles par mouvement.');
+                        }
+                    });
+                } else {
+                    // Android/autres : active directement
+                    allowMotion = true;
+                    window.addEventListener("deviceorientation", handleOrientation);
+                }
+            } else {
+                console.warn("Le gyroscope n'est pas supporté sur cet appareil.");
+                alert("Les contrôles par mouvement ne sont pas disponibles sur cet appareil.");
+            }
+        }
+
+        // Fonctions de jeu
         function resetGame() {
             teckel = [{ x: 9 * box, y: 10 * box }];
             food = {
@@ -303,31 +385,12 @@
             lastDirection = "RIGHT";
             isPaused = false;
             pauseScreen.style.display = "none";
-            document.getElementById("gameOverScreen").style.display = "none";
+            gameOverScreen.style.display = "none";
             pauseButton.textContent = '⏸';
             pauseButton.disabled = false;
             foodRotation = 0;
             foodBounce = 0;
             bounceDirection = 1;
-        }
-
-        function handleOrientation(event) {
-            if (!allowMotion) return;
-            const gamma = event.gamma;
-            const beta = event.beta;
-            if (Math.abs(gamma) > Math.abs(beta)) {
-                if (gamma < -12 && lastDirection !== "RIGHT") {
-                    d = "LEFT"; lastDirection = "LEFT";
-                } else if (gamma > 12 && lastDirection !== "LEFT") {
-                    d = "RIGHT"; lastDirection = "RIGHT";
-                }
-            } else {
-                if (beta > 12 && lastDirection !== "DOWN") {
-                    d = "UP"; lastDirection = "UP";
-                } else if (beta < -12 && lastDirection !== "UP") {
-                    d = "DOWN"; lastDirection = "DOWN";
-                }
-            }
         }
 
         function drawGrid() {
@@ -350,7 +413,7 @@
         function drawTeckelHead(head) {
             ctx.fillStyle = "#A0522D";
             ctx.fillRect(head.x, head.y, box, box);
-            ctx.fillStyle = "#D2B48C";
+            ctx.fillStyle = "#c29467";
             ctx.beginPath();
             ctx.ellipse(head.x + box * 0.25, head.y - box * 0.15, box * 0.25, box * 0.18, 0, 0, Math.PI * 2);
             ctx.fill();
@@ -390,19 +453,16 @@
             ctx.translate(food.x + box/2, food.y + box/2 + foodBounce);
             ctx.rotate(foodRotation);
 
-            // Croquette principale
             ctx.fillStyle = "#F5DEB3";
             ctx.beginPath();
             ctx.arc(0, 0, box/2.5, 0, Math.PI * 2);
             ctx.fill();
 
-            // Ombre 3D
             ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
             ctx.beginPath();
             ctx.ellipse(2, 2, box/2.5, box/3, 0, 0, Math.PI * 2);
             ctx.fill();
 
-            // Petits trous
             ctx.fillStyle = "#D2B48C";
             ctx.beginPath();
             ctx.arc(0, 0, box/6, 0, Math.PI * 2);
@@ -414,7 +474,6 @@
             ctx.arc(box/6, box/6, box/8, 0, Math.PI * 2);
             ctx.fill();
 
-            // Brillance
             ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
             ctx.beginPath();
             ctx.ellipse(-box/5, -box/5, box/6, box/8, Math.PI/4, 0, Math.PI * 2);
@@ -429,7 +488,7 @@
             drawGrid();
 
             for (let i = 0; i < teckel.length - 1; i++) {
-                ctx.fillStyle = "#8B4513";
+                ctx.fillStyle = "#c29467";
                 ctx.fillRect(teckel[i].x, teckel[i].y, box, box);
             }
 
@@ -437,7 +496,6 @@
             drawTeckelHead(head);
             drawFood();
 
-            // Animation de la nourriture
             foodRotation += 0.05;
             foodBounce += 0.2 * bounceDirection;
             if (foodBounce > 3 || foodBounce < -3) bounceDirection *= -1;
@@ -490,7 +548,7 @@
         function updateBestScore() {
             if (score > bestScore) {
                 bestScore = score;
-                bestScoreElement.textContent = "Meilleur score: " + bestScore;
+                bestScoreElement.textContent = "Votre meilleur score ! : " + bestScore;
                 localStorage.setItem("teckelBestScore", String(bestScore));
             }
         }
@@ -529,12 +587,13 @@
 
         function showGameOver() {
             finalScoreElement.textContent = "Score final : " + score;
-            document.getElementById("gameOverScreen").style.display = "block";
+            gameOverScreen.style.display = "block";
             window.removeEventListener("deviceorientation", handleOrientation);
             pauseButton.textContent = '⏸';
             pauseButton.disabled = true;
         }
 
+        // Écouteurs d'événements
         upButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "DOWN") { d = "UP"; lastDirection = "UP"; } });
         downButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "UP") { d = "DOWN"; lastDirection = "DOWN"; } });
         leftButton.addEventListener("touchstart", (e) => { e.preventDefault(); if (d !== "RIGHT") { d = "LEFT"; lastDirection = "LEFT"; } });
@@ -546,8 +605,16 @@
             clearInterval(gameInterval);
             gameInterval = setInterval(drawGame, 100);
             if (allowMotion) window.addEventListener("deviceorientation", handleOrientation);
+            gameOverScreen.style.display = "none";
         });
         resumeButton.addEventListener("click", function() { togglePause(); });
+        startButton.addEventListener("click", function() {
+            startScreen.style.display = "none";
+            resetGame();
+            clearInterval(gameInterval);
+            gameInterval = setInterval(drawGame, 100);
+            if (allowMotion) window.addEventListener("deviceorientation", handleOrientation);
+        });
 
         document.addEventListener('visibilitychange', () => {
             if (document.hidden && gameInterval) {
@@ -561,49 +628,11 @@
             }
         });
 
-        function showMotionPermissionIfNeeded() {
-            if (typeof DeviceOrientationEvent !== 'undefined' &&
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                motionPermissionContainer.style.display = 'block';
-            }
-        }
-
-        enableMotionBtn.addEventListener('click', async () => {
-            if (typeof DeviceOrientationEvent !== 'undefined' &&
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const res = await DeviceOrientationEvent.requestPermission();
-                    if (res === 'granted') {
-                        allowMotion = true;
-                        window.addEventListener("deviceorientation", handleOrientation);
-                        motionPermissionContainer.style.display = 'none';
-                    } else {
-                        allowMotion = false;
-                        alert('Permission aux mouvements refusée.');
-                    }
-                } catch (err) {
-                    console.error('Permission request failed', err);
-                }
-            } else {
-                allowMotion = true;
-                window.addEventListener("deviceorientation", handleOrientation);
-                motionPermissionContainer.style.display = 'none';
-            }
-        });
-
         document.addEventListener("keydown", handleKeydown);
-        if (window.innerWidth <= 768) {
-            showMotionPermissionIfNeeded();
-            if (!(typeof DeviceOrientationEvent !== 'undefined' &&
-                typeof DeviceOrientationEvent.requestPermission === 'function')) {
-                allowMotion = true;
-                window.addEventListener("deviceorientation", handleOrientation);
-            }
-        }
 
-        resetGame();
-        clearInterval(gameInterval);
-        gameInterval = setInterval(drawGame, 100);
+        // Initialisation
+        setupMotionControls();
+        startScreen.style.display = "block";
     </script>
 </body>
 </html>
