@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Teckel Game</title>
+    <script src="https://cdn.jsdelivr.net/npm/tinycolor2@1.4.2/dist/tinycolor-min.js"></script>
     <style>
         :root {
             --bg: #f9f9f9;
@@ -380,19 +381,16 @@
         }
 
         function drawGrid() {
-            ctx.strokeStyle = getComputedStyle(document.documentElement)
+            const lightColor = getComputedStyle(document.documentElement)
                 .getPropertyValue('--grid-color')
                 .trim();
-            ctx.lineWidth = 0.5;
+            const darkColor = tinycolor(lightColor).darken(20).toString();
+
             for (let i = 0; i < 20; i++) {
-                ctx.beginPath();
-                ctx.moveTo(i * box, 0);
-                ctx.lineTo(i * box, canvas.height);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(0, i * box);
-                ctx.lineTo(canvas.width, i * box);
-                ctx.stroke();
+                for (let j = 0; j < 20; j++) {
+                    ctx.fillStyle = (i + j) % 2 === 0 ? lightColor : darkColor;
+                    ctx.fillRect(i * box, j * box, box, box);
+                }
             }
         }
 
